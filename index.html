@@ -1,91 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PSV Uploader</title>
-  <style>
-    body { font-family: sans-serif; padding: 20px; text-align: center; }
-    .stage {
-      position: relative;
-      display: inline-block;
-      width: 100%;
-      max-width: 500px;
-    }
-    video {
-      width: 100%;
-      height: auto;
-      display: block;
-      background: #000;
-    }
-    #overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;   /* keeps proportion */
-      opacity: 0.5;
-      pointer-events: none;  /* overlay won’t block clicks */
-    }
-    #preview { margin-top: 20px; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PSV Uploader</title>
+<style>
+  :root{
+    /* TUNE THIS if the tray looks too big/small relative to video */
+    --overlay-scale-desktop: .86;   /* try .80 – .92 */
+    --overlay-scale-mobile:  .90;
+    --dialog-max-w: 720px;         /* desktop camera width */
+    --dialog-max-h: 80vh;          /* cap height so it fits small screens */
+  }
+
+  body{font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;color:#111}
+  .wrap{max-width:900px;margin:0 auto;padding:24px;text-align:center}
+  h1{font-size:clamp(1.6rem,2vw,2.2rem);margin:.2rem 0}
+  p.lead{color:#666;margin:.2rem 0 1.2rem}
+
+  /* ---------- Modal (desktop + mobile) ---------- */
+  .backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.5);
+    display:none; align-items:center; justify-content:center; z-index:9999;
+    padding:16px;
+  }
+  .dialog{
+    background:#fff; border-radius:14px; width:100%;
+    max-width:var(--dialog-max-w); box-shadow:0 20px 60px rgba(0,0,0,.35);
+    overflow:hidden; display:flex; flex-direction:column;
+  }
+  .dialog header{padding:12px 16px; font-weight:700; border-bottom:1px solid #eee}
+  .dialog .hint{padding:0 16px 10px; color:#555; font-size:.95rem}
+  .stage{
+    position:relative; width:100%; aspect-ratio: 4 / 3; /* common camera; adjusts with content */
+    background:#000;
+  }
+  /* Let the video expand nicely but stay inside the box */
+  video#cam{position:absolute; inset:0; width:100%; height:100%; object-fit:cover}
+  /* Overlay image sits over video and can be scaled independently */
+  img#overlay{
+    position:absolute; inset:0; width:100%; height:100%;
+    object-fit:contain; pointer-events:none; opacity:.5; filter: none;
+    transform-origin:center bottom;
+  }
+  .dialog footer{
+    display:flex; gap:12px; justify-content:center; padding:14px; border-top:1px solid #eee;
+  }
+  .btn{appearance:none;border:0;border-radius:999px;padding:12px 18px;font-weight:700;cursor:pointer}
+  .btn.primary{background:#111;color:#fff}
+  .btn.ghost{background:#f2f2f2}
+
+  /* Thumbnails */
+  #thumbs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
+  #thumbs img{width:110px;height:110px;object-fit:cover;border-radius:10px}
+
+  /* Mobile tweaks */
+  @media (max-width: 640px){
+    .dialog{max-width:92vw; max-height:var(--dialog-max-h)}
+    .stage{aspect-ratio: 3 / 4;} /* phones are taller; this feels closer to the example */
+  }
+</style>
 </head>
 <body>
-  <h2>Upload Your Impressions</h2>
-  <p>Fill in details, then take photos with overlay.</p>
+  <div class="wrap">
+    <h1>Upload Your Impressions</h1>
+    <p class="lead">Fill in details, then take photos with overlay.</p>
 
-  <form id="uploadForm">
-    <input type="text" name="orderNumber" placeholder="Order Number" required><br><br>
-    <input type="text" name="email" placeholder="Email" required><br><br>
-    <button type="button" id="startCamera">Start Camera</button>
-  </form>
+    <form id="f" novalidate>
+      <input name="order" placeholder="Order Number" required style="padding:10px;border-radius:8px;border:1px solid #ddd;width:240px;max-width:90%"><br><br>
+      <input name="email" type="email" placeholder="Email" required style="padding:10px;border-radius:8px;border:1px solid #ddd;width:240px;max-width:90%"><br><br>
+      <button type="button" id="open" class="btn ghost">Start Camera</button>
+    </form>
 
-  <div id="cameraContainer" style="display:none;">
-    <div class="stage">
-      <video id="camera" autoplay playsinline muted></video>
-      <!-- Make sure this matches exactly -->
-      <img id="overlay" src="Impression_Tray.png" alt="Overlay">
-    </div>
-    <div style="margin-top:12px">
-      <button id="takePhoto">Take Photo</button>
-    </div>
-    <canvas id="canvas" style="display:none;"></canvas>
-    <div id="preview"></div>
+    <div id="thumbs"></div>
   </div>
 
-  <script>
-    const CONTAINER_SAS_URL = "YOUR-SAS-URL-HERE";
+  <!-- Modal -->
+  <div id="backdrop" class="backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="dialog">
+      <header id="modalTitle">Bottom</header>
+      <div class="hint">Line up the handle accurately to make sure you get the correct angle. You can then take a photo.</div>
 
-    const startBtn  = document.getElementById("startCamera");
-    const video     = document.getElementById("camera");
-    const canvas    = document.getElementById("canvas");
-    const takeBtn   = document.getElementById("takePhoto");
-    const preview   = document.getElementById("preview");
+      <div class="stage">
+        <video id="cam" autoplay playsinline muted></video>
+        <!-- Use your tray overlay -->
+        <img id="overlay" src="Impression_Tray.png" alt="Tray overlay">
+      </div>
 
-    startBtn.onclick = async () => {
-      document.getElementById("cameraContainer").style.display = "block";
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-      } catch (err) {
-        alert("Camera error: " + err.message);
-      }
-    };
+      <footer>
+        <button id="snap" class="btn primary">Take Photo</button>
+        <button id="close" class="btn ghost">Close</button>
+      </footer>
+    </div>
+  </div>
 
-    takeBtn.onclick = () => {
-      if (!video.videoWidth) return;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  <canvas id="hiddenCanvas" style="display:none"></canvas>
 
-      const img = new Image();
-      img.src = dataUrl;
-      img.style.width = "200px";
-      preview.appendChild(img);
-    };
-  </script>
+<script>
+  // When you wire uploads, replace with your write-enabled (wac) SAS container URL
+  const CONTAINER_SAS_URL = ""; // e.g. "https://<acct>.blob.core.windows.net/psv-intake?sv=...&sp=wac&sr=c&se=..."
+
+  const openBtn  = document.getElementById('open');
+  const closeBtn = document.getElementById('close');
+  const snapBtn  = document.getElementById('snap');
+  const backdrop = document.getElementById('backdrop');
+  const stage    = document.querySelector('.stage');
+  const video    = document.getElementById('cam');
+  const overlay  = document.getElementById('overlay');
+  const canvas   = document.getElementById('hiddenCanvas');
+  const thumbs   = document.getElementById('thumbs');
+
+  // Scale overlay per device (so you can match InstaSmile proportions)
+  function applyOverlayScale(){
+    const isMobile = window.matchMedia('(max-width: 640px)').matches;
+    const s = isMobile ? getComputedStyle(document.documentElement).getPropertyValue('--overlay-scale-mobile')
+                       : getComputedStyle(document.documentElement).getPropertyValue('--overlay-scale-desktop');
+    overlay.style.transform = `scale(${parseFloat(s)})`;
+  }
+
+  window.addEventListener('resize', applyOverlayScale);
+
+  async function startCam(){
+    try{
+      const constraints = { video: { facingMode: { exact: "environment" } }, audio: false };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints).catch(async () =>
+        await navigator.mediaDevices.getUserMedia({ video:true, audio:false })
+      );
+      video.srcObject = stream;
+    }catch(e){
+      alert('Camera error: ' + e.message);
+    }
+  }
+
+  openBtn.addEventListener('click', async ()=>{
+    // Basic form check; you can expand later
+    const f = document.getElementById('f');
+    if(!f.reportValidity()) return;
+    backdrop.style.display = 'flex';
+    applyOverlayScale();
+    await startCam();
+  });
+
+  closeBtn.addEventListener('click', ()=>{
+    backdrop.style.display = 'none';
+    if(video.srcObject){ video.srcObject.getTracks().forEach(t=>t.stop()); }
+  });
+
+  snapBtn.addEventListener('click', ()=>{
+    if(!video.videoWidth) return;
+    const maxW = 1600; // cap size to keep files small
+    const scale = Math.min(1, maxW / video.videoWidth);
+    canvas.width  = Math.round(video.videoWidth  * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Preview thumbnail
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const img = new Image(); img.src = dataUrl;
+    img.style.width='120px'; img.style.height='120px'; img.style.objectFit='cover'; img.style.borderRadius='10px';
+    thumbs.appendChild(img);
+
+    // (Upload wiring comes next with your SAS; keeping MVP focus on layout)
+  });
+</script>
 </body>
 </html>
