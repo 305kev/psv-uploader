@@ -1,2 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PSV Uploader</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; text-align: center; }
+    #overlay {
+      position: absolute;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      opacity: 0.5;
+      max-width: 80%;
+      pointer-events: none;
+    }
+    video { width: 100%; max-width: 500px; }
+    #preview { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>Upload Your Impressions</h2>
+  <p>Fill in details, then take photos with overlay.</p>
 
-const CONTAINER_SAS_URL = "https://psvuploader.blob.core.windows.net/psv-intake?sp=r&st=2025-10-03T19:31:35Z&se=2025-10-04T03:46:35Z&spr=https&sv=2024-11-04&sr=c&sig=ngChTxxp8R9UY4fKYjfbRSrXwl%2BL1X0WlA5UzXzE%2Fng%3D";
+  <form id="uploadForm">
+    <input type="text" name="orderNumber" placeholder="Order Number" required><br><br>
+    <input type="text" name="email" placeholder="Email" required><br><br>
+    <button type="button" id="startCamera">Start Camera</button>
+  </form>
+
+  <div id="cameraContainer" style="display:none;">
+    <video id="camera" autoplay playsinline></video>
+    <img id="overlay" src="overlay.png" alt="Overlay">
+    <button id="takePhoto">Take Photo</button>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div id="preview"></div>
+  </div>
+
+  <script>
+    // Replace with your SAS URL
+    const CONTAINER_SAS_URL = "https://psvuploader.blob.core.windows.net/psv-intake?sp=r&st=2025-10-03T19:31:35Z&se=2025-10-04T03:46:35Z&spr=https&sv=2024-11-04&sr=c&sig=ngChTxxp8R9UY4fKYjfbRSrXwl%2BL1X0WlA5UzXzE%2Fng%3D";
+
+    const startBtn = document.getElementById("startCamera");
+    const video = document.getElementById("camera");
+    const overlay = document.getElementById("overlay");
+    const canvas = document.getElementById("canvas");
+    const takePhotoBtn = document.getElementById("takePhoto");
+    const preview = document.getElementById("preview");
+
+    startBtn.onclick = async () => {
+      document.getElementById("cameraContainer").style.display = "block";
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+    };
+
+    takePhotoBtn.onclick = () => {
+      const ctx = canvas.getContext("2d");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const imgData = canvas.toDataURL("image/png");
+
+      // Show preview
+      const img = document.createElement("img");
+      img.src = imgData;
+      img.style.width = "200px";
+      preview.appendChild(img);
+
+      // TODO: Add upload to Azure Blob Storage using CONTAINER_SAS_URL
+    };
+  </script>
+</body>
+</html>
