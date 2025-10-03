@@ -6,11 +6,11 @@
 <title>PSV Uploader</title>
 <style>
   :root{
-    /* TUNE THIS if the tray looks too big/small relative to video */
+    /* TUNE these to match InstaSmile proportions */
     --overlay-scale-desktop: .86;   /* try .80 – .92 */
     --overlay-scale-mobile:  .90;
-    --dialog-max-w: 720px;         /* desktop camera width */
-    --dialog-max-h: 80vh;          /* cap height so it fits small screens */
+    --dialog-max-w: 740px;          /* desktop camera width */
+    --dialog-max-h: 86vh;           /* keep within viewport */
   }
 
   body{font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;color:#111}
@@ -18,46 +18,41 @@
   h1{font-size:clamp(1.6rem,2vw,2.2rem);margin:.2rem 0}
   p.lead{color:#666;margin:.2rem 0 1.2rem}
 
-  /* ---------- Modal (desktop + mobile) ---------- */
+  input{padding:10px;border-radius:8px;border:1px solid #ddd;width:260px;max-width:90%}
+  .btn{appearance:none;border:0;border-radius:999px;padding:12px 18px;font-weight:700;cursor:pointer}
+  .btn.primary{background:#111;color:#fff}
+  .btn.ghost{background:#f2f2f2}
+
+  /* ----- Modal (desktop + mobile) ----- */
   .backdrop{
-    position:fixed; inset:0; background:rgba(0,0,0,.5);
+    position:fixed; inset:0; background:rgba(0,0,0,.55);
     display:none; align-items:center; justify-content:center; z-index:9999;
     padding:16px;
   }
   .dialog{
     background:#fff; border-radius:14px; width:100%;
-    max-width:var(--dialog-max-w); box-shadow:0 20px 60px rgba(0,0,0,.35);
+    max-width:var(--dialog-max-w); max-height:var(--dialog-max-h);
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
     overflow:hidden; display:flex; flex-direction:column;
   }
-  .dialog header{padding:12px 16px; font-weight:700; border-bottom:1px solid #eee}
-  .dialog .hint{padding:0 16px 10px; color:#555; font-size:.95rem}
-  .stage{
-    position:relative; width:100%; aspect-ratio: 4 / 3; /* common camera; adjusts with content */
-    background:#000;
-  }
-  /* Let the video expand nicely but stay inside the box */
+  .dialog header{padding:12px 16px; font-weight:700; border-bottom:1px solid #eee; display:flex;justify-content:space-between;align-items:center}
+  .dialog .hint{padding:6px 16px 12px; color:#555; font-size:.95rem}
+  .stage{position:relative; width:100%; aspect-ratio: 4 / 3; background:#000}
   video#cam{position:absolute; inset:0; width:100%; height:100%; object-fit:cover}
-  /* Overlay image sits over video and can be scaled independently */
-  img#overlay{
-    position:absolute; inset:0; width:100%; height:100%;
-    object-fit:contain; pointer-events:none; opacity:.5; filter: none;
-    transform-origin:center bottom;
-  }
-  .dialog footer{
-    display:flex; gap:12px; justify-content:center; padding:14px; border-top:1px solid #eee;
-  }
-  .btn{appearance:none;border:0;border-radius:999px;padding:12px 18px;font-weight:700;cursor:pointer}
-  .btn.primary{background:#111;color:#fff}
-  .btn.ghost{background:#f2f2f2}
+  img#overlay{position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none; opacity:.5; transform-origin:center bottom}
+  .bar{display:flex; gap:12px; justify-content:center; padding:14px; border-top:1px solid #eee; flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:999px;padding:8px 12px;margin:6px 4px;font-size:.9rem}
+  .chip .x{margin-left:6px;cursor:pointer;opacity:.6}
 
-  /* Thumbnails */
-  #thumbs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
-  #thumbs img{width:110px;height:110px;object-fit:cover;border-radius:10px}
+  /* Review panel */
+  .review{padding:0 16px 16px; overflow:auto}
+  .checks{display:flex;gap:10px;flex-direction:column;align-items:flex-start;color:#333;margin:10px 0}
+  .checks span::before{content:"✔";display:inline-block;margin-right:8px;color:#08a66c;font-weight:900}
+  .review-img{width:100%;border-radius:10px;border:1px solid #eee}
 
-  /* Mobile tweaks */
   @media (max-width: 640px){
-    .dialog{max-width:92vw; max-height:var(--dialog-max-h)}
-    .stage{aspect-ratio: 3 / 4;} /* phones are taller; this feels closer to the example */
+    .dialog{max-width:92vw;}
+    .stage{aspect-ratio: 3 / 4;} /* feels closer to their phone view */
   }
 </style>
 </head>
@@ -67,102 +62,246 @@
     <p class="lead">Fill in details, then take photos with overlay.</p>
 
     <form id="f" novalidate>
-      <input name="order" placeholder="Order Number" required style="padding:10px;border-radius:8px;border:1px solid #ddd;width:240px;max-width:90%"><br><br>
-      <input name="email" type="email" placeholder="Email" required style="padding:10px;border-radius:8px;border:1px solid #ddd;width:240px;max-width:90%"><br><br>
+      <input name="order" placeholder="Order Number (e.g., PSV1028)" required><br><br>
+      <input name="email" type="email" placeholder="Email" required><br><br>
       <button type="button" id="open" class="btn ghost">Start Camera</button>
     </form>
 
-    <div id="thumbs"></div>
+    <div id="uploads"></div>
   </div>
 
-  <!-- Modal -->
+  <!-- Capture Modal -->
   <div id="backdrop" class="backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="dialog">
-      <header id="modalTitle">Bottom</header>
+      <header><span id="modalTitle">Bottom</span> <button id="close" class="btn ghost">×</button></header>
       <div class="hint">Line up the handle accurately to make sure you get the correct angle. You can then take a photo.</div>
 
-      <div class="stage">
+      <div class="stage" id="captureStage">
         <video id="cam" autoplay playsinline muted></video>
-        <!-- Use your tray overlay -->
         <img id="overlay" src="Impression_Tray.png" alt="Tray overlay">
       </div>
 
-      <footer>
+      <div class="bar" id="captureBar">
+        <button id="flash" class="btn ghost">Flash: Auto</button>
         <button id="snap" class="btn primary">Take Photo</button>
-        <button id="close" class="btn ghost">Close</button>
-      </footer>
+      </div>
+
+      <!-- Review state (hidden until a shot is taken) -->
+      <div id="review" style="display:none">
+        <div class="hint" style="padding-top:12px;text-align:center;font-weight:600">Is your photo:</div>
+        <div class="review">
+          <div class="checks">
+            <span>Well lit</span>
+            <span>Clear</span>
+            <span>At the correct angle</span>
+          </div>
+          <img id="reviewImg" class="review-img" alt="Preview">
+        </div>
+        <div class="bar">
+          <button id="retake" class="btn" style="background:#f64b4b;color:#fff">No, retake</button>
+          <button id="confirm" class="btn" style="background:#10b983;color:#fff">Yes, continue</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <canvas id="hiddenCanvas" style="display:none"></canvas>
 
 <script>
-  // When you wire uploads, replace with your write-enabled (wac) SAS container URL
+  // ==== CONFIG ==============================================================
+  // Paste a WRITE-ENABLED (wac) Container SAS URL to enable uploads.
+  // If left blank (""), we'll still do camera + review but will skip upload.
   const CONTAINER_SAS_URL = ""; // e.g. "https://<acct>.blob.core.windows.net/psv-intake?sv=...&sp=wac&sr=c&se=..."
 
+  // Directory scheme for Azure blob path
+  function azurePrefix(meta){ return `incoming/#${meta.order}/raw/`; }
+
+  // ==== ELEMENTS ============================================================
   const openBtn  = document.getElementById('open');
   const closeBtn = document.getElementById('close');
+  const flashBtn = document.getElementById('flash');
   const snapBtn  = document.getElementById('snap');
+  const retakeBtn= document.getElementById('retake');
+  const confirmBtn=document.getElementById('confirm');
+
   const backdrop = document.getElementById('backdrop');
-  const stage    = document.querySelector('.stage');
   const video    = document.getElementById('cam');
   const overlay  = document.getElementById('overlay');
   const canvas   = document.getElementById('hiddenCanvas');
-  const thumbs   = document.getElementById('thumbs');
+  const uploads  = document.getElementById('uploads');
+  const review   = document.getElementById('review');
+  const reviewImg= document.getElementById('reviewImg');
+  const captureStage = document.getElementById('captureStage');
+  const captureBar   = document.getElementById('captureBar');
 
-  // Scale overlay per device (so you can match InstaSmile proportions)
+  let stream=null, photoBlob=null, meta=null, fileIndex=1, torchMode='auto';
+
+  function isMobile(){ return window.matchMedia('(max-width:640px)').matches; }
   function applyOverlayScale(){
-    const isMobile = window.matchMedia('(max-width: 640px)').matches;
-    const s = isMobile ? getComputedStyle(document.documentElement).getPropertyValue('--overlay-scale-mobile')
-                       : getComputedStyle(document.documentElement).getPropertyValue('--overlay-scale-desktop');
-    overlay.style.transform = `scale(${parseFloat(s)})`;
+    const s = getComputedStyle(document.documentElement)
+      .getPropertyValue(isMobile() ? '--overlay-scale-mobile' : '--overlay-scale-desktop');
+    overlay.style.transform = `scale(${parseFloat(s || 1)})`;
   }
-
   window.addEventListener('resize', applyOverlayScale);
+
+  function sanitizeOrder(v){ v=(v||'').toString().trim().toUpperCase(); return v; }
 
   async function startCam(){
     try{
-      const constraints = { video: { facingMode: { exact: "environment" } }, audio: false };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints).catch(async () =>
+      const base = { facingMode: { exact: "environment" } };
+      const constraints = { video: base, audio:false };
+      stream = await navigator.mediaDevices.getUserMedia(constraints).catch(async () =>
         await navigator.mediaDevices.getUserMedia({ video:true, audio:false })
       );
       video.srcObject = stream;
-    }catch(e){
+
+      // Try to enable torch automatically on supported devices (mostly Android Chrome).
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.torch) {
+        // 'auto' isn't universally supported, so try true; if it fails, show toggle.
+        try {
+          await track.applyConstraints({ advanced:[{ torch: true }] });
+          torchMode = 'on';
+          flashBtn.textContent = 'Flash: On';
+        } catch { torchMode = 'off'; flashBtn.textContent = 'Flash: Off'; }
+      } else {
+        // iOS Safari doesn't expose torch in getUserMedia; flashBtn will toggle label only.
+        flashBtn.textContent = 'Flash: Auto';
+      }
+    } catch(e){
       alert('Camera error: ' + e.message);
     }
   }
 
   openBtn.addEventListener('click', async ()=>{
-    // Basic form check; you can expand later
     const f = document.getElementById('f');
     if(!f.reportValidity()) return;
+    const fd = new FormData(f);
+    meta = { order: sanitizeOrder(fd.get('order')), email: (fd.get('email')||'').toString().trim() };
     backdrop.style.display = 'flex';
     applyOverlayScale();
     await startCam();
+    showCapture();
   });
 
   closeBtn.addEventListener('click', ()=>{
-    backdrop.style.display = 'none';
+    hideModal();
+  });
+
+  function showCapture(){
+    review.style.display='none';
+    captureStage.style.display='block';
+    captureBar.style.display='flex';
+  }
+  function showReview(){
+    captureStage.style.display='none';
+    captureBar.style.display='none';
+    review.style.display='block';
+  }
+  function hideModal(){
+    backdrop.style.display='none';
     if(video.srcObject){ video.srcObject.getTracks().forEach(t=>t.stop()); }
+    photoBlob=null;
+  }
+
+  flashBtn.addEventListener('click', async ()=>{
+    if(!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if(!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
+    if(!caps.torch) { alert('Flash control not supported on this device'); return; }
+    try{
+      const turnOn = torchMode !== 'on';
+      await track.applyConstraints({ advanced:[{ torch: turnOn }] });
+      torchMode = turnOn ? 'on' : 'off';
+      flashBtn.textContent = 'Flash: ' + (turnOn ? 'On' : 'Off');
+    }catch(e){ alert('Flash error: '+e.message); }
   });
 
   snapBtn.addEventListener('click', ()=>{
     if(!video.videoWidth) return;
-    const maxW = 1600; // cap size to keep files small
+    const maxW = 1600; // reasonable cap
     const scale = Math.min(1, maxW / video.videoWidth);
     canvas.width  = Math.round(video.videoWidth  * scale);
     canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Preview thumbnail
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    const img = new Image(); img.src = dataUrl;
-    img.style.width='120px'; img.style.height='120px'; img.style.objectFit='cover'; img.style.borderRadius='10px';
-    thumbs.appendChild(img);
-
-    // (Upload wiring comes next with your SAS; keeping MVP focus on layout)
+    canvas.toBlob(b => {
+      photoBlob = b;
+      reviewImg.src = URL.createObjectURL(b);
+      showReview();
+    }, 'image/jpeg', 0.9);
   });
+
+  retakeBtn.addEventListener('click', ()=>{
+    photoBlob=null;
+    showCapture();
+  });
+
+  function buildBlobUrl(containerUrl, pathPlusName){
+    return containerUrl.replace(/\?/, `/${encodeURIComponent(pathPlusName)}?`);
+  }
+
+  async function uploadBlob(){
+    if(!CONTAINER_SAS_URL){ return { ok:false, skipped:true, reason:'No SAS set' }; }
+    // Need write permission (w), add (a), create (c)
+    if(!/[?&]sp=.*(w|a|c)/.test(CONTAINER_SAS_URL)) {
+      return { ok:false, skipped:true, reason:'SAS missing w/a/c' };
+    }
+    const idx = String(fileIndex++).padStart(2,'0');
+    const now = new Date();
+    const name = `PSV_${meta.order || 'UNKNOWN'}_${now.toISOString().replace(/[:.TZ-]/g,'').slice(0,14)}_${idx}.jpg`;
+    const path = azurePrefix(meta) + name;
+    const putUrl = buildBlobUrl(CONTAINER_SAS_URL, path);
+    const r = await fetch(putUrl, {
+      method:'PUT',
+      headers:{ 'x-ms-blob-type':'BlockBlob', 'Content-Type':'image/jpeg' },
+      body: photoBlob
+    });
+    if(!r.ok) throw new Error('Upload failed: '+(await r.text()));
+    return { ok:true, name, path };
+  }
+
+  confirmBtn.addEventListener('click', async ()=>{
+    try{
+      let uploaded=null;
+      if(photoBlob){
+        uploaded = await uploadBlob();
+      }
+      hideModal();
+
+      // Add a status chip on the main screen
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      const label = uploaded?.ok ? `Uploaded as ${uploaded.name}` :
+                    uploaded?.skipped ? `Saved locally (no SAS)` :
+                    `Photo saved`;
+      chip.textContent = label + ' ';
+      const x = document.createElement('span'); x.textContent='×'; x.className='x';
+      chip.appendChild(x);
+      uploads.appendChild(chip);
+
+      // Delete logic (if SAS has delete, actually remove in Azure)
+      x.addEventListener('click', async ()=>{
+        chip.remove();
+        if(uploaded?.ok && /[?&]sp=.*d/.test(CONTAINER_SAS_URL)) {
+          try {
+            const delUrl = buildBlobUrl(CONTAINER_SAS_URL, uploaded.path);
+            await fetch(delUrl, { method:'DELETE' });
+          } catch(e){ console.warn('Delete failed:', e.message); }
+        }
+      });
+
+    }catch(err){
+      alert('Upload error: ' + err.message);
+      showCapture();
+    }
+  });
+
+  // Initial scale
+  applyOverlayScale();
 </script>
 </body>
 </html>
