@@ -111,7 +111,7 @@
   // ==== CONFIG ==============================================================
   // Paste a WRITE-ENABLED (wac) Container SAS URL to enable uploads.
   // If left blank (""), we'll still do camera + review but will skip upload.
-  const CONTAINER_SAS_URL = "https://psvuploader.blob.core.windows.net/psv-intake?sp=r&st=2025-10-13T19:08:00Z&se=2025-10-14T03:23:00Z&spr=https&sv=2024-11-04&sr=c&sig=RhXLsryAEmJlxOG4P0ERoJUkwFGN7yh17VyQRmM1gK0%3D"; // e.g. "https://<acct>.blob.core.windows.net/psv-intake?sv=...&sp=wac&sr=c&se=..."
+  const CONTAINER_SAS_URL = "https://psvuploader.blob.core.windows.net/psv-intake?sp=acw&st=2025-10-13T19:16:28Z&se=2025-10-18T03:31:28Z&spr=https&sv=2024-11-04&sr=c&sig=qxI2E2Edh6qvamrrBUSMjvDlhUY%2Flytjgpd2VMF0kzk%3D"; // e.g. "https://<acct>.blob.core.windows.net/psv-intake?sv=...&sp=wac&sr=c&se=..."
 
   // Directory scheme for Azure blob path
   function azurePrefix(meta){ return `incoming/#${meta.order}/raw/`; }
