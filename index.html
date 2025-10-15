@@ -1,45 +1,54 @@
-
 <script>
+(() => {
   // === CONFIG ===
   const FUNCTION_URL =
-    "https://psv-uploader-function-dwdaeyhrakb3a8d0.centralus-01.azurewebsites.net/api/create-upload-session"; // your function URL
-  // No key needed (Anonymous)
+    "https://psv-uploader-function-dwdaeyhrakb3a8d0.centralus-01.azurewebsites.net/api/create-upload-session"; // your function (Anonymous)
 
-  function buildFileName(order, index) {
-    const ts = new Date().toISOString().replace(/[-:.TZ]/g,"").slice(0,14);
-    const idx = String(index).padStart(2,"0");
-    return `PSV_${order || "UNKNOWN"}_${ts}_${idx}.jpg`;
-  }
-
-  // --- keep your existing element refs above this line ---
-  const openBtn   = document.getElementById('open');
-  const closeBtn  = document.getElementById('close');
-  const flashBtn  = document.getElementById('flash');
-  const snapBtn   = document.getElementById('snap');
-  const retakeBtn = document.getElementById('retake');
-  const confirmBtn= document.getElementById('confirm');
-
-  const backdrop  = document.getElementById('backdrop');
-  const video     = document.getElementById('cam');
-  const overlay   = document.getElementById('overlay');
-  const canvas    = document.getElementById('hiddenCanvas');
-  const uploads   = document.getElementById('uploads');
-  const review    = document.getElementById('review');
-  const reviewImg = document.getElementById('reviewImg');
-  const captureStage = document.getElementById('captureStage');
-  const captureBar   = document.getElementById('captureBar');
-
+  // --- refs (will be set in init) ---
+  let openBtn, closeBtn, flashBtn, snapBtn, retakeBtn, confirmBtn;
+  let backdrop, video, overlay, canvas, uploads, review, reviewImg, captureStage, captureBar;
   let stream=null, photoBlob=null, meta=null, fileIndex=1, torchMode='auto';
 
-  function isMobile(){ return matchMedia('(max-width:640px)').matches; }
+  // ===== helpers =====
+  const isMobile = () => window.matchMedia('(max-width:640px)').matches;
+  const sanitizeOrder = v => (v||'').toString().trim().toUpperCase();
+
   function applyOverlayScale(){
+    if (!overlay) return; // guard when not yet bound
     const s = getComputedStyle(document.documentElement)
       .getPropertyValue(isMobile() ? '--overlay-scale-mobile' : '--overlay-scale-desktop');
-    overlay.style.transform = `scale(${parseFloat(s||1)})`;
+    const v = parseFloat(s) || 1;
+    overlay.style.transform = `scale(${v})`;
   }
-  addEventListener('resize', applyOverlayScale);
-  function sanitizeOrder(v){ return (v||'').toString().trim().toUpperCase(); }
 
+  function buildFileName(order, index){
+    const ts  = new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14);
+    const idx = String(index).padStart(2,'0');
+    return `PSV_${order || 'UNKNOWN'}_${ts}_${idx}.jpg`;
+  }
+
+  // ===== Azure Function + Graph upload =====
+  async function createUploadSession(order, filename){
+    const u = new URL(FUNCTION_URL);
+    u.searchParams.set("order", order);
+    u.searchParams.set("filename", filename);
+    const r = await fetch(u.toString(), { method: "POST" });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok || !j.uploadUrl) throw new Error(`Create session failed (${r.status})`);
+    return j.uploadUrl;
+  }
+
+  async function uploadWhole(uploadUrl, blob){
+    const r = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Range": `bytes 0-${blob.size-1}/${blob.size}` },
+      body: blob
+    });
+    if (!(r.ok || r.status === 201)) throw new Error(`PUT failed ${r.status}`);
+    return true;
+  }
+
+  // ===== camera =====
   async function startCam(){
     try{
       const base = { facingMode: { exact: "environment" } };
@@ -58,87 +67,99 @@
     }catch(e){ alert('Camera error: '+e.message); }
   }
 
-  async function createUploadSession(order, filename){
-    const u = new URL(FUNCTION_URL);
-    u.searchParams.set("order", order);
-    u.searchParams.set("filename", filename);
-    const r = await fetch(u.toString(), { method: "POST" });
-    const j = await r.json().catch(()=>({}));
-    if (!r.ok || !j.uploadUrl) throw new Error(`Create session failed (${r.status})`);
-    return j.uploadUrl;
-  }
-
-  async function uploadWhole(uploadUrl, blob){
-    const r = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Range": `bytes 0-${blob.size-1}/${blob.size}` },
-      body: blob
-    });
-    if (!r.ok) throw new Error(`PUT failed ${r.status}`);
-    return true;
-  }
-
-  // — UI flow hooks (unchanged except where noted) —
-  openBtn.addEventListener('click', async ()=>{
-    const f = document.getElementById('f');
-    if(!f.reportValidity()) return;
-    const fd = new FormData(f);
-    meta = { order: sanitizeOrder(fd.get('order')), email: (fd.get('email')||'').toString().trim() };
-    backdrop.style.display='flex';
-    applyOverlayScale();
-    await startCam();
-    showCapture();
-  });
-
-  closeBtn.addEventListener('click', ()=>hideModal());
   function showCapture(){ review.style.display='none'; captureStage.style.display='block'; captureBar.style.display='flex'; }
   function showReview(){ captureStage.style.display='none'; captureBar.style.display='none'; review.style.display='block'; }
   function hideModal(){ backdrop.style.display='none'; video.srcObject?.getTracks().forEach(t=>t.stop()); photoBlob=null; }
 
-  flashBtn.addEventListener('click', async ()=>{
-    if(!stream) return;
-    const track = stream.getVideoTracks()[0];
-    const caps = track?.getCapabilities?.(); if(!caps?.torch){ alert('Flash control not supported'); return; }
-    try{
-      const on = (torchMode!=='on');
-      await track.applyConstraints({ advanced:[{ torch:on }] });
-      torchMode = on ? 'on' : 'off';
-      flashBtn.textContent = 'Flash: ' + (on ? 'On' : 'Off');
-    }catch(e){ alert('Flash error: '+e.message); }
-  });
+  // ===== init after DOM is ready =====
+  function init(){
+    // bind DOM refs
+    openBtn    = document.getElementById('open');
+    closeBtn   = document.getElementById('close');
+    flashBtn   = document.getElementById('flash');
+    snapBtn    = document.getElementById('snap');
+    retakeBtn  = document.getElementById('retake');
+    confirmBtn = document.getElementById('confirm');
 
-  snapBtn.addEventListener('click', ()=>{
-    if(!video.videoWidth) return;
-    const maxW = 1600;
-    const scale = Math.min(1, maxW / video.videoWidth);
-    canvas.width = Math.round(video.videoWidth*scale);
-    canvas.height= Math.round(video.videoHeight*scale);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
-    canvas.toBlob(b=>{ photoBlob=b; reviewImg.src=URL.createObjectURL(b); showReview(); }, 'image/jpeg', 0.9);
-  });
+    backdrop   = document.getElementById('backdrop');
+    video      = document.getElementById('cam');
+    overlay    = document.getElementById('overlay');
+    canvas     = document.getElementById('hiddenCanvas');
+    uploads    = document.getElementById('uploads');
+    review     = document.getElementById('review');
+    reviewImg  = document.getElementById('reviewImg');
+    captureStage = document.getElementById('captureStage');
+    captureBar   = document.getElementById('captureBar');
 
-  retakeBtn.addEventListener('click', ()=>{ photoBlob=null; showCapture(); });
-
-  confirmBtn.addEventListener('click', async ()=>{
-    try{
-      if(!photoBlob) throw new Error("No photo");
-      const filename = buildFileName(meta.order, fileIndex++);
-      // 1) ask Function for an upload session
-      const uploadUrl = await createUploadSession(meta.order, filename);
-      // 2) upload the photo to SharePoint
-      await uploadWhole(uploadUrl, photoBlob);
-
-      hideModal();
-      const chip=document.createElement('div'); chip.className='chip';
-      chip.textContent=`✅ Uploaded as ${filename}`;
-      const x=document.createElement('span'); x.textContent=' ×'; x.className='x'; x.onclick=()=>chip.remove();
-      chip.appendChild(x); uploads.appendChild(chip);
-    }catch(err){
-      alert('Upload error: '+err.message);
-      showCapture();
+    // sanity check
+    const required = [openBtn, closeBtn, flashBtn, snapBtn, retakeBtn, confirmBtn, backdrop, video, overlay, canvas];
+    if (required.some(el => !el)) {
+      console.error('Missing expected DOM elements. Check your IDs match the script.');
+      return;
     }
-  });
 
-  applyOverlayScale();
+    // wire listeners AFTER refs exist
+    window.addEventListener('resize', applyOverlayScale);
+    applyOverlayScale();
+
+    openBtn.addEventListener('click', async ()=>{
+      const f = document.getElementById('f');
+      if(!f.reportValidity()) return;
+      const fd = new FormData(f);
+      meta = { order: sanitizeOrder(fd.get('order')), email: (fd.get('email')||'').toString().trim() };
+      backdrop.style.display='flex';
+      applyOverlayScale();
+      await startCam();
+      showCapture();
+    });
+
+    closeBtn.addEventListener('click', ()=> hideModal());
+
+    flashBtn.addEventListener('click', async ()=>{
+      if(!stream) return;
+      const track = stream.getVideoTracks()[0];
+      const caps = track?.getCapabilities?.(); if(!caps?.torch){ alert('Flash control not supported on this device'); return; }
+      try{
+        const on = (torchMode !== 'on');
+        await track.applyConstraints({ advanced:[{ torch:on }] });
+        torchMode = on ? 'on' : 'off';
+        flashBtn.textContent = 'Flash: ' + (on ? 'On' : 'Off');
+      }catch(e){ alert('Flash error: '+e.message); }
+    });
+
+    snapBtn.addEventListener('click', ()=>{
+      if(!video.videoWidth) return;
+      const maxW = 1600;
+      const scale = Math.min(1, maxW / video.videoWidth);
+      canvas.width = Math.round(video.videoWidth  * scale);
+      canvas.height= Math.round(video.videoHeight * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(b => { photoBlob=b; reviewImg.src=URL.createObjectURL(b); showReview(); }, 'image/jpeg', 0.9);
+    });
+
+    retakeBtn.addEventListener('click', ()=>{ photoBlob=null; showCapture(); });
+
+    confirmBtn.addEventListener('click', async ()=>{
+      try{
+        if(!photoBlob) throw new Error('No photo captured');
+        const filename = buildFileName(meta.order, fileIndex++);
+        const uploadUrl = await createUploadSession(meta.order, filename);
+        await uploadWhole(uploadUrl, photoBlob);
+
+        hideModal();
+        const chip = document.createElement('div');
+        chip.className='chip';
+        chip.textContent=`✅ Uploaded as ${filename}`;
+        const x=document.createElement('span'); x.textContent=' ×'; x.className='x'; x.onclick=()=>chip.remove();
+        chip.appendChild(x); uploads.appendChild(chip);
+      }catch(err){
+        alert('Upload error: ' + err.message);
+        showCapture();
+      }
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+})();
 </script>
