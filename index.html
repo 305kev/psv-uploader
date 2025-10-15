@@ -236,6 +236,8 @@ img#overlay{ position:absolute; inset:0; width:100%; height:100%; object-fit:con
     captureStage.style.display='none';
     captureBar.style.display='none';
     review.style.display='block';
+    // scroll the confirm buttons into view
+    document.querySelector('.bar:last-of-type')?.scrollIntoView({ block:'end', behavior:'smooth' });
   }
   function hideModal(){
     backdrop.style.display='none';
