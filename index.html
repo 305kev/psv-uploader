@@ -262,27 +262,32 @@
 
   // ==== NEW: upload to SharePoint via your Function ====
   confirmBtn.addEventListener('click', async ()=>{
-    try{
-      if(!photoBlob) throw new Error('No photo captured');
+  try{
+    if(!photoBlob) throw new Error('No photo captured');
 
-      const filename = buildFileName(meta?.order, fileIndex++);
-      const uploadUrl = await createUploadSession(meta?.order || 'UNKNOWN', filename);
-      await uploadWhole(uploadUrl, photoBlob);
+    const filename = buildFileName(meta?.order, fileIndex++);
+    const fd = new FormData();
+    fd.append('order', meta?.order || 'UNKNOWN');
+    fd.append('filename', filename);
+    fd.append('file', photoBlob, filename);
 
-      hideModal();
+    const r = await fetch(FUNCTION_URL, { method: 'POST', body: fd }); // <-- send file to your Function
+    const j = await r.json().catch(()=>({}));
 
-      const chip = document.createElement('div');
-      chip.className = 'chip';
-      chip.textContent = `✅ Uploaded as ${filename}`;
-      const x = document.createElement('span'); x.textContent='×'; x.className='x'; x.onclick=()=>chip.remove();
-      chip.appendChild(x);
-      uploads.appendChild(chip);
+    if(!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
-    }catch(err){
-      alert('Upload error: ' + err.message);
-      showCapture();
-    }
-  });
+    hideModal();
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = `✅ Uploaded as ${filename}`;
+    const x = document.createElement('span'); x.textContent=' ×'; x.className='x'; x.onclick=()=>chip.remove();
+    chip.appendChild(x);
+    uploads.appendChild(chip);
+  }catch(err){
+    alert('Upload error: ' + err.message);
+    showCapture();
+  }
+});
 
   // Initial scale
   applyOverlayScale();
