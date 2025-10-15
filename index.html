@@ -264,25 +264,27 @@
   confirmBtn.addEventListener('click', async ()=>{
   try{
     if(!photoBlob) throw new Error('No photo captured');
-
     const filename = buildFileName(meta?.order, fileIndex++);
-    const fd = new FormData();
-    fd.append('order', meta?.order || 'UNKNOWN');
-    fd.append('filename', filename);
-    fd.append('file', photoBlob, filename);
+    const order = meta?.order || 'UNKNOWN';
 
-    const r = await fetch(FUNCTION_URL, { method: 'POST', body: fd }); // <-- send file to your Function
+    const url = new URL(FUNCTION_URL);
+    url.searchParams.set('order', order);
+    url.searchParams.set('filename', filename);
+
+    const r = await fetch(url.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: photoBlob   // send bytes directly (no multipart)
+    });
     const j = await r.json().catch(()=>({}));
-
     if(!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
     hideModal();
     const chip = document.createElement('div');
     chip.className = 'chip';
     chip.textContent = `✅ Uploaded as ${filename}`;
-    const x = document.createElement('span'); x.textContent=' ×'; x.className='x'; x.onclick=()=>chip.remove();
-    chip.appendChild(x);
-    uploads.appendChild(chip);
+    const x=document.createElement('span'); x.textContent=' ×'; x.className='x'; x.onclick=()=>chip.remove();
+    chip.appendChild(x); uploads.appendChild(chip);
   }catch(err){
     alert('Upload error: ' + err.message);
     showCapture();
